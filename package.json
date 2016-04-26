@@ -28,6 +28,7 @@
     "js-nacl": "^0.6.0",
     "libsodium": "^0.3.0",
     "libsodium-wrappers": "^0.3.0",
-    "scrypt": "^6.0.2"
+    "scrypt": "^6.0.2",
+    "through": "^2.3.8"
   }
 }
