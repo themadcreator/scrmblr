@@ -2,6 +2,7 @@ nacl   = require('js-nacl').instantiate()
 path   = require 'path'
 crypto = require 'crypto'
 scrypt = require 'scrypt'
+sodium = require 'libsodium-wrappers'
 
 Promise = require 'bluebird'
 fs = Promise.promisifyAll(require('fs'))
@@ -42,10 +43,14 @@ class NaclScrambler
     headerView.setUint32(4, blocksize = 512)
 
 
-  scramble : (file, key) ->
+  scramble : (file, context) ->
     header = @header(file)
+    streamKey = nacl.random_bytes(nacl.crypto_stream_KEYBYTES)
 
-    key   = nacl.random_bytes(nacl.crypto_stream_KEYBYTES)
+    nonce = nacl.crypto_secretbox_random_nonce()
+    c = nacl.crypto_secretbox(key, nonce, context.);
+m1 = nacl.crypto_box_seal(c, n, context.boxPk);
+
     nonce = nacl.crypto_stream_random_nonce()
     fs.open("#{new Buffer(nonce).toString('hex')}.scmblr", "w").then((fd) ->
 

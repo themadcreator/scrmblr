@@ -26,6 +26,8 @@
     "coffee-script": "^1.10.0",
     "commander": "^2.9.0",
     "js-nacl": "^0.6.0",
+    "libsodium": "^0.3.0",
+    "libsodium-wrappers": "^0.3.0",
     "scrypt": "^6.0.2"
   }
 }
