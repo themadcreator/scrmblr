@@ -33,7 +33,7 @@ chunkThrough = (chunksize) ->
       bytesInBuffer += data.length
       buffers.push(data)
 
-      while bytesInBuffer > chunksize
+      while bytesInBuffer >= chunksize
         @queue(chunk = consolidateChunk())
         bytesInBuffer -= chunk.length
     ,
@@ -44,13 +44,12 @@ chunkThrough = (chunksize) ->
       @queue(null)
   )
 
-module.exports = {
-  chunk : chunkThrough
-}
+module.exports = chunkThrough
 
+###
 do ->
   fs = require 'fs'
   fs.createReadStream('test.bin')
     .pipe(chunkThrough(25612))
     .pipe(through((data) -> console.log(data.length)))
-
+###

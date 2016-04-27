@@ -1,16 +1,16 @@
-nacl   = require('js-nacl').instantiate()
-path   = require 'path'
-crypto = require 'crypto'
-scrypt = require 'scrypt'
-sodium = require 'libsodium-wrappers'
+fs           = require 'fs'
+path         = require 'path'
 
-Promise = require 'bluebird'
-fs = Promise.promisifyAll(require('fs'))
+nacl         = require('js-nacl').instantiate()
+sodium       = require 'libsodium-wrappers'
+
+xorThrough   = require './xor-through'
+chunkThrough = require './chunk-through'
+
 
 class NaclScrambler
   @DEFAULT_CHUNK_SIZE : 512
   @FORMAT_PREFIX : new Buffer('SCRMBLR', 'ASCII')
-
 
   constructor : (@context) ->
 
@@ -47,20 +47,28 @@ class NaclScrambler
     }
 
   scramble : (filePath) ->
+    # generate metadata
     metadata =
       file  : path.basename(filePath)
       key   : nacl.random_bytes(nacl.crypto_stream_KEYBYTES)
       nonce : nacl.crypto_stream_random_nonce()
       chunk : 512
 
-    console.log 'KEY',  new Buffer(metadata.key).toString('hex')
-    console.log 'NAME', metadata.file
+    # open output file for writing
+    out = fs.createWriteStream(path.join(
+      path.dirname(path.resolve(filePath))
+      new Buffer(nacl.random_bytes(16)).toString('hex') + '.scrmblr'
+    ))
 
-    mdata = @parseHeader(@serializeHeader(metadata))
+    # write header
+    out.write(@serializeHeader(metadata))
 
-    console.log 'KEY',  new Buffer(mdata.key).toString('hex')
-    console.log 'NAME', mdata.file
-
+    # encrypt the rest of the file contents in chunks
+    fs.createReadStream(filePath)
+      .pipe(chunkThrough(metadata.chunk))
+      .pipe(xorThrough(metadata.nonce, metadata.key))
+      .pipe(out)
+    return
 
 
 
@@ -112,22 +120,15 @@ class NaclScrambler
 
 do ->
   ScrmblrContext = require './context'
-  context = new ScrmblrContext().init()
+  io = new ScrmblrContext()
+
+  #context = io.init()
+  #io.store(context, "password")
+
+  context = io.load()
+  # context = io.unlock(context, "password")
 
   scrmblr = new NaclScrambler(context)
-  scrmblr.scramble("filetest")
-
-    # save public key and encrypted secret key to disk
-    #fs.writeFileSync('.scrmblr.json', JSON.stringify())
-    #context = JSON.parse(fs.readFileSync('.scrmblr.json'))
+  scrmblr.scramble('test.bin')
 
 
-  ###
-  key = nacl.random_bytes(nacl.crypto_stream_KEYBYTES)
-  scrmblr = new NaclScrambler()
-  data = scrmblr.scramble("filetest.txt", key)
-  console.log scrmblr.unscramble(data, )
-  scrmblr = new NaclScrambler()
-  scrmblr.init("password")
-  scrmblr.prepare("password")
-  ###
