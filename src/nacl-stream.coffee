@@ -4,9 +4,9 @@ path         = require 'path'
 nacl         = require('js-nacl').instantiate()
 sodium       = require 'libsodium-wrappers'
 
-xorThrough   = require './xor-through'
 chunkThrough = require './chunk-through'
-
+xorThrough   = require './xor-through'
+takeThrough  = require './take-through'
 
 class NaclScrambler
   @DEFAULT_CHUNK_SIZE : 512
@@ -46,89 +46,51 @@ class NaclScrambler
       chunk : metadata.chunk
     }
 
+  extractHeader : (input, metadataCallback) ->
+    x = input.pipe(takeThrough(NaclScrambler.FORMAT_PREFIX.length, (prefix) ->
+        if not prefix.equals(NaclScrambler.FORMAT_PREFIX) then throw new Error("not a scrmblr file")
+    )).pipe(takeThrough(4, (b) =>
+      sealedMetadataByteLength = Uint32Array.from(b)[0]
+      remainder = x.pipe(takeThrough(sealedMetadataByteLength, (sealedMetadata) =>
+        serializedMetadata = nacl.decode_utf8(sodium.crypto_box_seal_open(Uint8Array.from(sealedMetadata), @context.boxPk, @context.boxSk))
+        metadata = JSON.parse(serializedMetadata)
+
+        metadataCallback(remainder, {
+          file  : metadata.file
+          key   : Uint8Array.from(new Buffer(metadata.key, 'base64'))
+          nonce : Uint8Array.from(new Buffer(metadata.nonce, 'base64'))
+          chunk : metadata.chunk
+        })
+      ))
+    ))
+    return
+
   scramble : (filePath) ->
     # generate metadata
     metadata =
       file  : path.basename(filePath)
       key   : nacl.random_bytes(nacl.crypto_stream_KEYBYTES)
       nonce : nacl.crypto_stream_random_nonce()
-      chunk : 512
+      chunk : NaclScrambler.DEFAULT_CHUNK_SIZE
 
-    # open output file for writing
-    out = fs.createWriteStream(path.join(
-      path.dirname(path.resolve(filePath))
-      new Buffer(nacl.random_bytes(16)).toString('hex') + '.scrmblr'
-    ))
+    # new Buffer(nacl.random_bytes(16)).toString('hex')
+    output = fs.createWriteStream('scrambled.scrmblr')
+    output.write(@serializeHeader(metadata))
 
-    # write header
-    out.write(@serializeHeader(metadata))
-
-    # encrypt the rest of the file contents in chunks
-    fs.createReadStream(filePath)
+    input = fs.createReadStream(filePath)
+    input
       .pipe(chunkThrough(metadata.chunk))
       .pipe(xorThrough(metadata.nonce, metadata.key))
-      .pipe(out)
-    return
+      .pipe(output)
 
-
-
-  ###
-
-  scramble : (file, context) ->
-    header = @header(file)
-    streamKey = nacl.random_bytes(nacl.crypto_stream_KEYBYTES)
-
-    nonce = nacl.crypto_secretbox_random_nonce()
-
-    nonce = nacl.crypto_stream_random_nonce()
-    fs.open("#{new Buffer(nonce).toString('hex')}.scrmblr", "w").then((fd) ->
-
-      fs.write(fd, nacl.crypto_stream_xor(header, nonce, key), 0).then ->
-        writeBlock = ->
-      )
-
-
+  unscramble : (filePath) ->
+    @extractHeader(fs.createReadStream(filePath), (remainder, metadata) ->
+      output = fs.createWriteStream('unscrambled.scrmblr') # use metadata.file
+      remainder
+        .pipe(chunkThrough(metadata.chunk))
+        .pipe(xorThrough(metadata.nonce, metadata.key))
+        .pipe(output)
     )
 
-    fs.write(fd, 0)
-
-
-
-    # pipe to files
-    data = new Uint8Array(c_header.length + c_filename.length)
-    data.set(c_header, 0)
-    data.set(c_filename, c_header.length)
-    return data
-
-
-  # integer addition of 1 on uint8array
-  increment : (arr) ->
-    for i in [0...arr.length]
-      arr[i]++
-      break if arr[i] # break unless carry
-    return arr
-
-  unscramble : (data, nonce, key) ->
-
-    # unscramble
-    d_preamble = nacl.crypto_stream_xor(data.slice(0, 4), nonce, key)
-    filenameLength = new DataView(d_preamble.buffer).getUint32(0)
-    d_filename = nacl.crypto_stream_xor(data.slice(4, 4 + filenameLength), @increment(nonce), key)
-    console.log nacl.decode_utf8(d_filename)
-  ###
-
-
-do ->
-  ScrmblrContext = require './context'
-  io = new ScrmblrContext()
-
-  #context = io.init()
-  #io.store(context, "password")
-
-  context = io.load()
-  # context = io.unlock(context, "password")
-
-  scrmblr = new NaclScrambler(context)
-  scrmblr.scramble('test.bin')
-
+module.exports = NaclScrambler
 
