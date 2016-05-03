@@ -8,7 +8,7 @@ chunkThrough = require './chunk-through'
 xorThrough   = require './xor-through'
 takeThrough  = require './take-through'
 
-class NaclScrambler
+class Scrambler
   @DEFAULT_CHUNK_SIZE : 512
   @FORMAT_PREFIX : new Buffer('SCRMBLR', 'ASCII')
 
@@ -23,17 +23,17 @@ class NaclScrambler
     })
     sealedMetadata = sodium.crypto_box_seal(nacl.encode_utf8(serializedMetadata), @context.boxPk)
     fields = [
-      NaclScrambler.FORMAT_PREFIX
+      Scrambler.FORMAT_PREFIX
       new Buffer(Uint32Array.of(sealedMetadata.byteLength).buffer)
       new Buffer(sealedMetadata.buffer)
     ]
     return Buffer.concat(fields)
 
   parseHeader : (buffer) ->
-    if not buffer.slice(0, NaclScrambler.FORMAT_PREFIX.length).equals(NaclScrambler.FORMAT_PREFIX)
+    if not buffer.slice(0, Scrambler.FORMAT_PREFIX.length).equals(Scrambler.FORMAT_PREFIX)
       throw new Error("not a scrmblr file")
 
-    buffer = buffer.slice(NaclScrambler.FORMAT_PREFIX.length)
+    buffer = buffer.slice(Scrambler.FORMAT_PREFIX.length)
     sealedMetadataLength = Uint32Array.from(buffer)[0]
 
     buffer = buffer.slice(4)
@@ -47,8 +47,8 @@ class NaclScrambler
     }
 
   extractHeader : (input, metadataCallback) ->
-    x = input.pipe(takeThrough(NaclScrambler.FORMAT_PREFIX.length, (prefix) ->
-        if not prefix.equals(NaclScrambler.FORMAT_PREFIX) then throw new Error("not a scrmblr file")
+    x = input.pipe(takeThrough(Scrambler.FORMAT_PREFIX.length, (prefix) ->
+        if not prefix.equals(Scrambler.FORMAT_PREFIX) then throw new Error("not a scrmblr file")
     )).pipe(takeThrough(4, (b) =>
       sealedMetadataByteLength = Uint32Array.from(b)[0]
       remainder = x.pipe(takeThrough(sealedMetadataByteLength, (sealedMetadata) =>
@@ -71,10 +71,10 @@ class NaclScrambler
       file  : path.basename(filePath)
       key   : nacl.random_bytes(nacl.crypto_stream_KEYBYTES)
       nonce : nacl.crypto_stream_random_nonce()
-      chunk : NaclScrambler.DEFAULT_CHUNK_SIZE
+      chunk : Scrambler.DEFAULT_CHUNK_SIZE
 
-    # new Buffer(nacl.random_bytes(16)).toString('hex')
-    output = fs.createWriteStream('scrambled.scrmblr')
+    name   = new Buffer(nacl.random_bytes(16)).toString('hex')
+    output = fs.createWriteStream("#{name}.scrmblr")
     output.write(@serializeHeader(metadata))
 
     input = fs.createReadStream(filePath)
@@ -85,12 +85,12 @@ class NaclScrambler
 
   unscramble : (filePath) ->
     @extractHeader(fs.createReadStream(filePath), (remainder, metadata) ->
-      output = fs.createWriteStream('unscrambled.scrmblr') # use metadata.file
+      output = fs.createWriteStream('unscrambled.bin') # use metadata.file
       remainder
         .pipe(chunkThrough(metadata.chunk))
         .pipe(xorThrough(metadata.nonce, metadata.key))
         .pipe(output)
     )
 
-module.exports = NaclScrambler
+module.exports = Scrambler
 
