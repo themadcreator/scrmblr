@@ -45,12 +45,47 @@ extractHeader : (input, metadataCallback) ->
     return
 ###
 
+takeThrough = require './take-through'
+through = require 'through'
+promisePipe = ->
+  context = through((data) -> @queue(data))
+
+  api = (raw) -> 
+  
+    ### end = new Promise((resolve, reject) ->
+      raw.on 'end', resolve
+      raw.on 'error', reject
+    )
+    ###
+
+    Object.assign(raw, {
+      take : (num) ->
+        deferred = Promise.pending()
+        context = api(context.pipe(takeThrough(num, deferred.resolve)))
+        return api(deferred.promise)
+
+      drain : ->
+        context = context.pipe(through((data) -> @queue(data)))
+    })
+    return raw
+  return api(context)
+
+
 do ->
   fs = require 'fs'
   stream = fs.createReadStream('test.bin')
+
+  stream.pipe(promisePipe()
+    .take(4).then((b) ->
+      console.log b
+    ).drain() #.then((b) -> console.log b)
+  )
+
+###
   pp = pipePromise(stream)
   pp.take(4).then((b) ->
     console.log b
     console.log @
     @take(6)
   ).then (b) -> console.log b
+###
